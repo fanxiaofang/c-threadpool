@@ -94,6 +94,20 @@ int threadpool_add(threadpool_t *pool, void (*routine)(void *),
  */
 int threadpool_destroy(threadpool_t *pool, int flags);
 
+/**
+ * @function threadpool_pause
+ * @brief 暂停线程池：阻止新任务被线程取走执行，不影响正在执行任务的线程
+ * @param pool 线程池 
+ */
+void threadpool_pause(threadpool_t* pool);
+
+/**
+ * @function threadpool_resume
+ * @brief 恢复线程池：允许新任务被线程取走执行
+ * @param pool 线程池 
+ */
+void threadpool_resume(threadpool_t *pool);
+
 #ifdef __cplusplus
 }
 #endif

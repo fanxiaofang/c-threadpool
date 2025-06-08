@@ -46,6 +46,14 @@ typedef enum {
 } threadpool_shutdown_t;
 
 /**
+ * 线程池两种状态：运行中和暂停中
+ * 暂停线程池不会停止正在执行的任务，只是阻止新任务被工作线程取走执行
+ */
+typedef enum {
+    pool_running = 0,
+    pool_paused = 1
+} threadpool_state_t;
+/**
  *  @struct threadpool_task
  *  @brief the work struct
  *
@@ -80,30 +88,40 @@ typedef struct {
  *  @var lock         互斥锁，用于保护共享资源
  *  @var notify       条件变量，用于线程之间通知
  *  @var queue_not_full  条件变量，任务队列满时threadpool_add阻塞等待
+ *  @var notify_pause 条件变量，线程暂停/恢复通知
  *  @var threads      数组头指针，数组用来存储所有线程的线程ID
  *  @var thread_count 线程数量
- *  @var queue        任务队列，存储任务的数组
+ *  @var queue        任务队列(环形缓冲区)，存储任务的数组
  *  @var queue_size   任务队列的大小
  *  @var head         任务队列的首个任务索引
- *  @var tail         ？？？任务队列中最后一个任务的下一个索引位置（任务队列是数组结构，这里head tail指的是数组索引
+ *  @var tail         任务队列中最后一个任务的下一个索引位置（任务队列是数组结构，这里head tail指的是数组索引
  *  @var count        任务队列中等待处理的任务数
  *  @var shutdown     线程池是否关闭的状态变量
  *  @var started      开始做任务的线程数
+ *  @var state        线程池状态（运行or暂停）
+ *  @var paused_threads      当前暂停的线程数量（用于管理暂停
  * 
  */
 struct threadpool_t {
   pthread_mutex_t lock;
   pthread_cond_t notify;
   pthread_cond_t queue_not_full;
+  pthread_cond_t notify_pause;
+
   pthread_t *threads;
   threadpool_task_t *queue;
+
   int thread_count;
   int queue_size;
   int head;
   int tail;
   int count;
-  int shutdown;
   int started;
+
+  threadpool_shutdown_t shutdown;
+ 
+  threadpool_state_t state;
+  int paused_threads;
 };
 
 /**
@@ -150,6 +168,7 @@ threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
     if((pthread_mutex_init(&(pool->lock), NULL) != 0) ||
        (pthread_cond_init(&(pool->notify), NULL) != 0) ||
        (pthread_cond_init(&(pool->queue_not_full), NULL) != 0) ||
+       (pthread_cond_init(&(pool->notify_pause), NULL) != 0) ||
        (pool->threads == NULL) ||
        (pool->queue == NULL)) {
         goto err;
@@ -242,8 +261,6 @@ int threadpool_add(threadpool_t *pool, void (*function)(void *),
  */
 int threadpool_destroy(threadpool_t *pool, int flags)
 {
-    int i;
-
     if(pool == NULL) {
         return threadpool_invalid;
     }
@@ -273,6 +290,7 @@ int threadpool_destroy(threadpool_t *pool, int flags)
     */
     pthread_cond_broadcast(&(pool->notify));
     pthread_cond_broadcast(&(pool->queue_not_full));
+    pthread_cond_broadcast(&(pool->notify_pause));
 
     pthread_mutex_unlock(&(pool->lock));
 
@@ -321,6 +339,11 @@ int threadpool_free(threadpool_t *pool)
     if (pthread_cond_destroy(&(pool->queue_not_full)) != 0) {
         return -1;
     }
+
+    /* 安全销毁条件变量，确保没有线程等待该条件变量 */
+    if (pthread_cond_destroy(&(pool->notify_pause)) != 0) {
+        return -1;
+    }
  
     // /* Because we allocate pool->threads after initializing the
     //    mutex and condition variable, we're sure they're
@@ -355,6 +378,13 @@ static void *threadpool_thread(void *threadpool)
             pthread_cond_wait(&(pool->notify), &(pool->lock));
         }
 
+        /* 线程暂停处理 */
+        while ((pool->state == pool_paused) && (!pool->shutdown)) {
+            pool->paused_threads++;
+            pthread_cond_wait(&(pool->notify_pause), &(pool->lock));
+            pool->paused_threads--;
+        }
+
         /* 当需要立即关闭线程池 或者 优雅关闭线程池且任务队列中没有任务 时*/
         if((pool->shutdown == immediate_shutdown) ||
            ((pool->shutdown == graceful_shutdown) &&
@@ -370,7 +400,6 @@ static void *threadpool_thread(void *threadpool)
         task.argument = pool->queue[pool->head].argument;
         pool->head = (pool->head + 1) % pool->queue_size;
         /* 如果head移动到了任务队列的末尾，则从任务队列头部重新开始*/
-        pool->head =(pool->head == pool->queue_size) ? 0 : pool->head;
         pool->count -= 1;
 
         /* 任务队列空出位置，通知等待空位的的任务生产者*/
@@ -387,4 +416,19 @@ static void *threadpool_thread(void *threadpool)
  
     pthread_exit(NULL);
     return(NULL);
+}
+
+void threadpool_pause(threadpool_t* pool)
+{
+    pthread_mutex_lock(&pool->lock);
+    pool->state = pool_paused;
+    pthread_mutex_unlock(&pool->lock);
+}
+
+void threadpool_resume(threadpool_t *pool)
+{
+    pthread_mutex_lock(&pool->lock);
+    pool->state = pool_running;
+    pthread_cond_broadcast(&pool->notify_pause);
+    pthread_mutex_unlock(&pool->lock);
 }

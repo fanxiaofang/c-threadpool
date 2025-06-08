@@ -8,7 +8,7 @@
 
 #include "threadpool.h"
 
-int tasks = 0, done = 0, max_tasks = 1024;
+int tasks = 0, done = 0, max_tasks = 512;
 pthread_mutex_t lock;
 
 void dummy_task(void *arg) {
@@ -30,10 +30,13 @@ int main(int argc, char **argv)
     fprintf(stderr, "Pool started with %d threads and "
             "queue size of %d\n", THREAD, QUEUE);
 
-    while(threadpool_add(pool, &dummy_task, NULL, 0) == 0) {
-        pthread_mutex_lock(&lock);
-        tasks++;
-        pthread_mutex_unlock(&lock);
+    for (int i = 0; i < max_tasks; i++) {
+        if (threadpool_add(pool, &dummy_task, NULL, 0) == 0) {
+            pthread_mutex_lock(&lock);
+            tasks++;
+            printf(" tasks:%d\n", tasks);
+            pthread_mutex_unlock(&lock);
+        }
     }
 
     fprintf(stderr, "Added %d tasks\n", tasks);
