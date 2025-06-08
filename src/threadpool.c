@@ -240,7 +240,8 @@ int threadpool_add(threadpool_t *pool, void (*function)(void *),
 
         /* pthread_cond_broadcast */
         /* 通知等待在条件变量notify的线程 有新任务*/
-        if(pthread_cond_signal(&(pool->notify)) != 0) {
+        // if(pthread_cond_signal(&(pool->notify)) != 0) {
+        if(pthread_cond_broadcast(&(pool->notify)) != 0) {
             err = threadpool_lock_failure;
             break;
         }
