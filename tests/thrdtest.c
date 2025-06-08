@@ -8,11 +8,13 @@
 
 #include "threadpool.h"
 
-int tasks = 0, done = 0;
+int tasks = 0, done = 0, max_tasks = 1024;
 pthread_mutex_t lock;
 
 void dummy_task(void *arg) {
-    usleep(10000);
+    // usleep(10000);
+    /* 增加任务函数中sleep时长，为了模拟出任务队列满出现阻塞等待的情况 */
+    sleep(5);
     pthread_mutex_lock(&lock);
     done++;
     pthread_mutex_unlock(&lock);

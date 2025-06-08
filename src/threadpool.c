@@ -79,6 +79,7 @@ typedef struct {
  * 线程池的结构定义
  *  @var lock         互斥锁，用于保护共享资源
  *  @var notify       条件变量，用于线程之间通知
+ *  @var queue_not_full  条件变量，任务队列满时threadpool_add阻塞等待
  *  @var threads      数组头指针，数组用来存储所有线程的线程ID
  *  @var thread_count 线程数量
  *  @var queue        任务队列，存储任务的数组
@@ -93,6 +94,7 @@ typedef struct {
 struct threadpool_t {
   pthread_mutex_t lock;
   pthread_cond_t notify;
+  pthread_cond_t queue_not_full;
   pthread_t *threads;
   threadpool_task_t *queue;
   int thread_count;
@@ -147,6 +149,7 @@ threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
     /* 初始化互斥锁 条件变量 */
     if((pthread_mutex_init(&(pool->lock), NULL) != 0) ||
        (pthread_cond_init(&(pool->notify), NULL) != 0) ||
+       (pthread_cond_init(&(pool->queue_not_full), NULL) != 0) ||
        (pool->threads == NULL) ||
        (pool->queue == NULL)) {
         goto err;
@@ -191,16 +194,17 @@ int threadpool_add(threadpool_t *pool, void (*function)(void *),
     }
 
     /* 计算存储新任务的数组索引：获取当前任务队列的最后一个任务的下一个空闲位置索引 */
-    next = pool->tail + 1;
-    next = (next == pool->queue_size) ? 0 : next;
+    next = (pool->tail + 1) % pool->queue_size;
+
+    /* 任务队列满 且线程池不是关闭状态时 阻塞等待*/
+    while ((pool->count == pool->queue_size) && (!pool->shutdown)) {
+        /* 阻塞 等待任务队列有空位通知*/
+        // printf("---- queue is full, im waiting ---\n");
+        pthread_cond_wait(&(pool->queue_not_full), &(pool->lock));
+        // printf("---- queue is not full ---\n");
+    }
 
     do {
-        /* 检查任务队列是否满, 这里队伍队列满时返回错误值，需调用者决定如何处理，比如重试、放弃或者记录日志 */
-        if(pool->count == pool->queue_size) {
-            err = threadpool_queue_full;
-            break;
-        }
-
         /* Are we shutting down ? */
         if(pool->shutdown) {
             err = threadpool_shutdown;
@@ -268,6 +272,7 @@ int threadpool_destroy(threadpool_t *pool, int flags)
      * pthread_cond_broadcast执行错误的可能性很小，所以无需判断返回值
     */
     pthread_cond_broadcast(&(pool->notify));
+    pthread_cond_broadcast(&(pool->queue_not_full));
 
     pthread_mutex_unlock(&(pool->lock));
 
@@ -309,6 +314,11 @@ int threadpool_free(threadpool_t *pool)
 
     /* 安全销毁条件变量，确保没有线程等待该条件变量 */
     if (pthread_cond_destroy(&(pool->notify)) != 0) {
+        return -1;
+    }
+
+    /* 安全销毁条件变量，确保没有线程等待该条件变量 */
+    if (pthread_cond_destroy(&(pool->queue_not_full)) != 0) {
         return -1;
     }
  
@@ -362,6 +372,9 @@ static void *threadpool_thread(void *threadpool)
         /* 如果head移动到了任务队列的末尾，则从任务队列头部重新开始*/
         pool->head =(pool->head == pool->queue_size) ? 0 : pool->head;
         pool->count -= 1;
+
+        /* 任务队列空出位置，通知等待空位的的任务生产者*/
+        pthread_cond_signal(&(pool->queue_not_full));
 
         /* Unlock */
         pthread_mutex_unlock(&(pool->lock));
