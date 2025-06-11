@@ -1,3 +1,5 @@
+本项目基于github的[Threadpool](https://github.com/mbrossard/threadpool)，适合学习<br>
+github[这个线程池项目](https://github.com/Pithikos/C-Thread-Pool#) 也可以学习
 ## 一、总体结构与设计
 基于经典的 线程池+环形任务队列+互斥锁+条件变量，核心特性：
 - 任务队列
