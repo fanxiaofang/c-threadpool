@@ -53,15 +53,12 @@ typedef enum {
     pool_running = 0,
     pool_paused = 1
 } threadpool_state_t;
+
 /**
- *  @struct threadpool_task
- *  @brief the work struct
- *
- *  @var function Pointer to the function that will perform the task.
- *  @var argument Argument to be passed to the function.
- */
-/**
- * 任务定义：任务函数、传给给任务函数的参数
+ * @struct threadpool_task
+ * @brief 任务结构体定义
+ * @var 函数指针，执行任务的函数的函数指针
+ * @var 传递给任务函数的参数
  */
 typedef struct {
     void (*function)(void *);
@@ -70,21 +67,7 @@ typedef struct {
 
 /**
  *  @struct threadpool
- *  @brief The threadpool struct
- *
- *  @var notify       Condition variable to notify worker threads.
- *  @var threads      Array containing worker threads ID.
- *  @var thread_count Number of threads
- *  @var queue        Array containing the task queue.
- *  @var queue_size   Size of the task queue.
- *  @var head         Index of the first element.
- *  @var tail         Index of the next element.
- *  @var count        Number of pending tasks
- *  @var shutdown     Flag indicating if the pool is shutting down
- *  @var started      Number of started threads
- */
-/**
- * 线程池的结构定义
+ *  @brief 线程池的结构定义
  *  @var lock         互斥锁，用于保护共享资源
  *  @var notify       条件变量，用于线程之间通知
  *  @var queue_not_full  条件变量，任务队列满时threadpool_add阻塞等待
@@ -96,8 +79,8 @@ typedef struct {
  *  @var head         任务队列的首个任务索引
  *  @var tail         任务队列中最后一个任务的下一个索引位置（任务队列是数组结构，这里head tail指的是数组索引
  *  @var count        任务队列中等待处理的任务数
- *  @var shutdown     线程池是否关闭的状态变量
  *  @var started      开始做任务的线程数
+ *  @var shutdown     线程池是否关闭的状态变量
  *  @var state        线程池状态（运行or暂停）
  *  @var paused_threads      当前暂停的线程数量（用于管理暂停
  * 
